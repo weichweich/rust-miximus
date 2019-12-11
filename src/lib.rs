@@ -1,4 +1,3 @@
-#![feature(custom_attribute)]
 extern crate sapling_crypto;
 extern crate bellman;
 extern crate pairing;
@@ -25,33 +24,31 @@ use bellman::{
 
 use ff::{Field, PrimeField};
 use sapling_crypto::{
-    babyjubjub::{
-        JubjubEngine,
-    },
+    babyjubjub::JubjubEngine,
     circuit::{
-        num::{AllocatedNum},
+        num::AllocatedNum,
         baby_pedersen_hash,
         boolean::{Boolean, AllocatedBit}
     }
 };
 
-use pairing::{bn256::{Fr}};
+use pairing::bn256::Fr;
 
 mod blake_circuit;
 mod blake_merkle_tree;
-mod merkle_tree;
+pub mod merkle_tree;
 mod zk_util;
 
 use zk_util::{generate, prove, verify};
 
 /// Circuit for proving knowledge of preimage of leaf in merkle tree
-struct MerkleTreeCircuit<'a, E: JubjubEngine> {
+pub struct MerkleTreeCircuit<'a, E: JubjubEngine> {
     // nullifier
-    nullifier: Option<E::Fr>,
+    pub nullifier: Option<E::Fr>,
     // secret
-    secret: Option<E::Fr>,
-    proof: Vec<Option<(bool, E::Fr)>>,
-    params: &'a E::Params,
+    pub secret: Option<E::Fr>,
+    pub proof: Vec<Option<(bool, E::Fr)>>,
+    pub params: &'a E::Params,
 }
 
 /// Our demo circuit implements this `Circuit` trait which

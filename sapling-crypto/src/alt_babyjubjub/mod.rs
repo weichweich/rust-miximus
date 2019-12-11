@@ -7,8 +7,8 @@
 //! with a requirement that `a' = -1, a = 168696`, that results in 
 //! ```
 //! scaling = 1911982854305225074381251344103329931637610209014896889891168275855466657090 
-//! a' = 21888242871839275222246405745257275088548364400416034343698204186575808495616 == -1 = a*scale^2 mod P
-//! d' = 12181644023421730124874158521699555681764249180949974110617291017600649128846 == -(168696/168700) = d*scale^2
+//! a1 = 21888242871839275222246405745257275088548364400416034343698204186575808495616 == -1 = a*scale^2 mod P
+//! d1 = 12181644023421730124874158521699555681764249180949974110617291017600649128846 == -(168696/168700) = d*scale^2
 //! ```
 //! 
 //! It is birationally equivalent to a Montgomery
@@ -293,7 +293,7 @@ impl AltJubjubBn256 {
             let mut pedersen_circuit_generators = vec![];
 
             // Process each segment
-            for mut gen in tmp_params.pedersen_hash_generators.iter().cloned() {
+            for gen in tmp_params.pedersen_hash_generators.iter().cloned() {
                 let mut gen = montgomery::Point::from_edwards(&gen, &tmp_params);
                 let mut windows = vec![];
                 for _ in 0..tmp_params.pedersen_hash_chunks_per_generator() {

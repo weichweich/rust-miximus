@@ -34,7 +34,7 @@ pub struct KGVerify {
     pub result: bool
 }
 
-pub fn generate(seed_slice: &[u32], depth: u32) -> Result<KGGenerate, Box<Error>> {
+pub fn generate(seed_slice: &[u32], depth: u32) -> Result<KGGenerate, Box<dyn Error>> {
     let rng = &mut ChaChaRng::from_seed(seed_slice);
     let j_params = &JubjubBn256::new();
     let mut proof_elts = vec![];
@@ -71,7 +71,7 @@ pub fn prove(
         secret_hex: &str,
         mut proof_path_hex: &str,
         mut proof_path_sides: &str,
-) -> Result<KGProof, Box<Error>> {
+) -> Result<KGProof, Box<dyn Error>> {
     let de_params = Parameters::<Bn256>::read(&hex::decode(params)?[..], true)?;
     let j_params = &JubjubBn256::new();
     let rng = &mut ChaChaRng::from_seed(seed_slice);
@@ -121,7 +121,7 @@ pub fn prove(
     })
 }
 
-pub fn verify(params: &str, proof: &str, nullifier_hex: &str, root_hex: &str) -> Result<KGVerify, Box<Error>> {
+pub fn verify(params: &str, proof: &str, nullifier_hex: &str, root_hex: &str) -> Result<KGVerify, Box<dyn Error>> {
     let de_params = Parameters::read(&hex::decode(params)?[..], true)?;
     let pvk = prepare_verifying_key::<Bn256>(&de_params.vk);
     // Nullifier

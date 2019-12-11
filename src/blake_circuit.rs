@@ -190,7 +190,7 @@ pub struct KGVerify {
     pub result: bool
 }
 
-pub fn generate(seed_slice: &[u32], depth: u32) -> Result<KGGenerate, Box<Error>> {
+pub fn generate(seed_slice: &[u32], depth: u32) -> Result<KGGenerate, Box<dyn Error>> {
     let rng = &mut ChaChaRng::from_seed(seed_slice);
     let mut proof_elts = vec![];
 
@@ -230,7 +230,7 @@ pub fn prove(
     nullifier: &[u8; 32],
     secret: &[u8; 32],
     proof_path: Vec<Option<(bool,[u8; 32])>>,
-) -> Result<KGProof, Box<Error>> {
+) -> Result<KGProof, Box<dyn Error>> {
     let rng = &mut ChaChaRng::from_seed(seed_slice);
     // construct proof path structure
     let de_params = Parameters::<Bn256>::read(&hex::decode(params)?[..], true)?;
@@ -257,7 +257,7 @@ pub fn verify(
     proof: &str,
     nullifier_hex: &str,
     root_hex: &str
-) -> Result<KGVerify, Box<Error>> {
+) -> Result<KGVerify, Box<dyn Error>> {
     let de_params = Parameters::read(&hex::decode(params)?[..], true)?;
     let pvk = prepare_verifying_key::<Bn256>(&de_params.vk);
     // Nullifier
@@ -296,21 +296,21 @@ pub fn generate_tree(seed_slice: &[u32], depth: u32) -> Result<JsValue, JsValue>
     }
 }
 
-#[wasm_bindgen(catch)]
-pub fn prove_tree(
-    seed_slice: &[u32],
-    params: &str,
-    nullifier: &[u8; 32],
-    secret: &[u8; 32],
-    proof_path: Vec<Option<(bool,[u8; 32])>>,
-) -> Result<JsValue, JsValue> {
-    let res = prove(seed_slice, params, nullifier, secret, proof_path);
-    if res.is_ok() {
-        Ok(JsValue::from_serde(&res.ok().unwrap()).unwrap())
-    } else {
-        Err(JsValue::from_str(&res.err().unwrap().to_string()))
-    }
-}
+// #[wasm_bindgen(catch)]
+// pub fn prove_tree(
+//     seed_slice: &[u32],
+//     params: &str,
+//     nullifier: &[u8; 32],
+//     secret: &[u8; 32],
+//     proof_path: Vec<Option<(bool,[u8; 32])>>,
+// ) -> Result<JsValue, JsValue> {
+//     let res = prove(seed_slice, params, nullifier, secret, proof_path);
+//     if res.is_ok() {
+//         Ok(JsValue::from_serde(&res.ok().unwrap()).unwrap())
+//     } else {
+//         Err(JsValue::from_str(&res.err().unwrap().to_string()))
+//     }
+// }
 
 #[wasm_bindgen(catch)]
 pub fn verify_tree(
