@@ -1,13 +1,13 @@
-extern crate sapling_crypto;
 extern crate bellman;
-extern crate pairing;
+extern crate blake2_rfc;
 extern crate ff;
 extern crate num_bigint;
 extern crate num_traits;
+extern crate pairing;
 extern crate rand;
+extern crate sapling_crypto;
 extern crate time;
 extern crate wasm_bindgen;
-extern crate blake2_rfc;
 
 #[macro_use]
 extern crate serde_derive;
@@ -16,20 +16,16 @@ extern crate hex;
 
 use wasm_bindgen::prelude::*;
 
-use bellman::{
-    Circuit,
-    SynthesisError,
-    ConstraintSystem,
-};
+use bellman::{Circuit, ConstraintSystem, SynthesisError};
 
 use ff::{Field, PrimeField};
 use sapling_crypto::{
     babyjubjub::JubjubEngine,
     circuit::{
-        num::AllocatedNum,
         baby_pedersen_hash,
-        boolean::{Boolean, AllocatedBit}
-    }
+        boolean::{AllocatedBit, Boolean},
+        num::AllocatedNum,
+    },
 };
 
 use pairing::bn256::Fr;
@@ -57,66 +53,86 @@ pub struct MerkleTreeCircuit<'a, E: JubjubEngine> {
 impl<'a, E: JubjubEngine> Circuit<E> for MerkleTreeCircuit<'a, E> {
     fn synthesize<CS: ConstraintSystem<E>>(self, cs: &mut CS) -> Result<(), SynthesisError> {
         // nullifier is the left side of the preimage
-        let nullifier = AllocatedNum::alloc(cs.namespace(|| "nullifier"),
-            || Ok(match self.nullifier {
+        let nullifier = AllocatedNum::alloc(cs.namespace(|| "nullifier"), || {
+            Ok(match self.nullifier {
                 Some(n) => n,
                 None => E::Fr::zero(),
             })
-        )?;
+        })?;
         nullifier.inputize(cs.namespace(|| "public input nullifier"))?;
         // secret is the right side of the preimage
-        let secret = AllocatedNum::alloc(cs.namespace(|| "secret"),
-            || Ok(match self.secret {
+        let secret = AllocatedNum::alloc(cs.namespace(|| "secret"), || {
+            Ok(match self.secret {
                 Some(s) => s,
                 None => E::Fr::zero(),
             })
-        )?;
+        })?;
         // construct preimage using [nullifier_bits|secret_bits] concatenation
         let mut preimage = vec![];
-        preimage.extend(nullifier.into_bits_le_strict(cs.namespace(|| "nullifier bits"))?
-            .into_iter()
-            .take(Fr::NUM_BITS as usize));
-        preimage.extend(secret.into_bits_le_strict(cs.namespace(|| "secret bits"))?
-            .into_iter()
-            .take(Fr::NUM_BITS as usize));
+        preimage.extend(
+            nullifier
+                .into_bits_le_strict(cs.namespace(|| "nullifier bits"))?
+                .into_iter()
+                .take(Fr::NUM_BITS as usize),
+        );
+        preimage.extend(
+            secret
+                .into_bits_le_strict(cs.namespace(|| "secret bits"))?
+                .into_iter()
+                .take(Fr::NUM_BITS as usize),
+        );
         // compute leaf hash using pedersen hash of preimage
         let mut hash = baby_pedersen_hash::pedersen_hash(
             cs.namespace(|| "computation of leaf pedersen hash"),
             baby_pedersen_hash::Personalization::NoteCommitment,
             &preimage,
-            self.params
-        )?.get_x().clone();
+            self.params,
+        )?
+        .get_x()
+        .clone();
         // reconstruct merkle root hash using the private merkle path
         for i in 0..self.proof.len() {
-			if let Some((ref side, ref element)) = self.proof[i] {
-                let elt = AllocatedNum::alloc(cs.namespace(|| format!("elt {}", i)), || Ok(*element))?;
-                let right_side = Boolean::from(AllocatedBit::alloc(
-                    cs.namespace(|| format!("position bit {}", i)),
-                    Some(*side)).unwrap()
+            if let Some((ref side, ref element)) = self.proof[i] {
+                let elt =
+                    AllocatedNum::alloc(cs.namespace(|| format!("elt {}", i)), || Ok(*element))?;
+                let right_side = Boolean::from(
+                    AllocatedBit::alloc(
+                        cs.namespace(|| format!("position bit {}", i)),
+                        Some(*side),
+                    )
+                    .unwrap(),
                 );
                 // Swap the two if the current subtree is on the right
                 let (xl, xr) = AllocatedNum::conditionally_reverse(
                     cs.namespace(|| format!("conditional reversal of preimage {}", i)),
                     &elt,
                     &hash,
-                    &right_side
+                    &right_side,
                 )?;
                 // build preimage of merkle hash as concatenation of left and right nodes
                 let mut preimage = vec![];
-                preimage.extend(xl.into_bits_le_strict(cs.namespace(|| format!("xl into bits {}", i)))?);
-                preimage.extend(xr.into_bits_le_strict(cs.namespace(|| format!("xr into bits {}", i)))?);
+                preimage.extend(
+                    xl.into_bits_le_strict(cs.namespace(|| format!("xl into bits {}", i)))?,
+                );
+                preimage.extend(
+                    xr.into_bits_le_strict(cs.namespace(|| format!("xr into bits {}", i)))?,
+                );
                 // Compute the new subtree value
                 let personalization = baby_pedersen_hash::Personalization::MerkleTree(i as usize);
                 hash = baby_pedersen_hash::pedersen_hash(
                     cs.namespace(|| format!("computation of pedersen hash {}", i)),
                     personalization,
                     &preimage,
-                    self.params
-                )?.get_x().clone(); // Injective encoding
+                    self.params,
+                )?
+                .get_x()
+                .clone(); // Injective encoding
             }
         }
         hash.inputize(cs)?;
         println!("THE ROOT HASH {:?}", hash.get_value());
+        println!("Private Merkle Path Length: {:?}", self.proof.len());
+        println!("Preimage Length: {:?}", preimage.len());
         Ok(())
     }
 }
@@ -143,9 +159,16 @@ pub fn prove_tree(
     nullifier_hex: &str,
     secret_hex: &str,
     proof_path_hex: &str,
-    proof_path_sides: &str
+    proof_path_sides: &str,
 ) -> Result<JsValue, JsValue> {
-    let res = prove(seed_slice, params, nullifier_hex, secret_hex, proof_path_hex, proof_path_sides);
+    let res = prove(
+        seed_slice,
+        params,
+        nullifier_hex,
+        secret_hex,
+        proof_path_hex,
+        proof_path_sides,
+    );
     if res.is_ok() {
         Ok(JsValue::from_serde(&res.ok().unwrap()).unwrap())
     } else {
@@ -158,7 +181,7 @@ pub fn verify_tree(
     params: &str,
     proof: &str,
     nullifier_hex: &str,
-    root_hex: &str
+    root_hex: &str,
 ) -> Result<JsValue, JsValue> {
     let res = verify(params, proof, nullifier_hex, root_hex);
     if res.is_ok() {
@@ -170,27 +193,19 @@ pub fn verify_tree(
 
 #[cfg(test)]
 mod test {
-    use std::fs;
-    use pairing::{bn256::{Bn256, Fr}};
-    use sapling_crypto::{
-        babyjubjub::{
-            JubjubBn256,
-        }
-    };
+    use pairing::bn256::{Bn256, Fr};
     use rand::{ChaChaRng, SeedableRng};
+    use sapling_crypto::babyjubjub::JubjubBn256;
+    use std::fs;
 
-    use sapling_crypto::circuit::{
-        test::TestConstraintSystem
-    };
-    use bellman::{
-        Circuit,
-    };
+    use bellman::Circuit;
     use rand::Rand;
     use rand::Rng;
+    use sapling_crypto::circuit::test::TestConstraintSystem;
 
-    use super::{MerkleTreeCircuit, generate, prove, verify};
+    use super::{generate, prove, verify, MerkleTreeCircuit};
     use blake_circuit::BlakeTreeCircuit;
-    use merkle_tree::{create_leaf_list, create_leaf_from_preimage, build_merkle_tree_with_proof};
+    use merkle_tree::{build_merkle_tree_with_proof, create_leaf_from_preimage, create_leaf_list};
     use time::PreciseTime;
 
     #[test]
@@ -200,13 +215,9 @@ mod test {
         let rng = &mut ChaChaRng::from_seed(seed_slice);
         println!("generating setup...");
         let start = PreciseTime::now();
-        
         let mut proof_vec = vec![];
         for _ in 0..32 {
-            proof_vec.push(Some((
-                true,
-                Fr::rand(rng))
-            ));
+            proof_vec.push(Some((true, Fr::rand(rng))));
         }
 
         let j_params = &JubjubBn256::new();
@@ -218,7 +229,10 @@ mod test {
         };
 
         m_circuit.synthesize(&mut cs).unwrap();
-        println!("setup generated in {} s", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
+        println!(
+            "setup generated in {} s",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
         println!("num constraints: {}", cs.num_constraints());
         println!("num inputs: {}", cs.num_inputs());
     }
@@ -228,7 +242,7 @@ mod test {
         // let mut cs = TestConstraintSystem::<Bn256>::new();
         let seed_slice = &[1u32, 1u32, 1u32, 1u32];
         let rng = &mut ChaChaRng::from_seed(seed_slice);
-        println!("generating setup...");        
+        println!("generating setup...");
         let nullifier = Fr::rand(rng);
         let secret = Fr::rand(rng);
         let leaf = *create_leaf_from_preimage(nullifier, secret).hash();
@@ -236,7 +250,8 @@ mod test {
         for _ in 0..7 {
             leaves.push(Fr::rand(rng));
         }
-        let tree_nodes = create_leaf_list(leaves, 3);
+        let tree_nodes = create_leaf_list(leaves, 3).unwrap();
+        println!("Tree Nodes: {}", tree_nodes.len());
         let (_r, proof) = build_merkle_tree_with_proof(tree_nodes, 3, 3, leaf, vec![]);
         println!("THE ROOT HASH IN TEST{:?}", _r.root.hash());
         // let j_params = &JubjubBn256::new();
@@ -258,8 +273,8 @@ mod test {
                 Some((right_side, pt)) => {
                     proof_path_hex.push_str(&pt.to_hex());
                     proof_path_sides.push_str(if right_side { &"1" } else { &"0" });
-                },
-                None => {},
+                }
+                None => {}
             }
         }
         let params = generate(seed_slice, proof.len() as u32).unwrap().params;
@@ -270,67 +285,111 @@ mod test {
             secret_hex,
             &proof_path_hex,
             &proof_path_sides,
-        ).unwrap();
+        )
+        .unwrap();
 
         fs::write("test/test.params", params).unwrap();
         fs::write("test/test.proof", proof_hex.proof).unwrap();
         let parameters = &String::from_utf8(fs::read("test/test.params").unwrap()).unwrap();
         let the_proof = &String::from_utf8(fs::read("test/test.proof").unwrap()).unwrap();
-        
         // let h = &String::from_utf8(fs::read("test/test_tree.h").unwrap()).unwrap();
         let verify = verify(parameters, the_proof, &nullifier_hex, &root_hex).unwrap();
         // println!("{:?}", cs.which_is_unsatisfied());
         println!("Did the circuit work!? {:?}", verify.result);
     }
 
-
     use merkle_tree::compute_root_from_proof;
 
     #[test]
     fn test_proof_creation() {
-        let start = PreciseTime::now();    
+        let start = PreciseTime::now();
         let rng = &mut ChaChaRng::from_seed(&[1u32, 1u32, 1u32, 1u32]);
-        println!("\nsetup generated in {} s\n\n", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
+        println!(
+            "\nsetup generated in {} s\n\n",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
 
         let target_leaf = Fr::rand(rng);
-        println!("random target created in {} s", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
-        let mut leaves: Vec<pairing::bn256::Fr> = vec![1,2,3,4,5,6,7].iter().map(|_| Fr::rand(rng)).collect();
-        println!("leaves created in {} s", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
+        println!(
+            "random target created in {} s",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
+        let mut leaves: Vec<pairing::bn256::Fr> = vec![1, 2, 3, 4, 5, 6, 7]
+            .iter()
+            .map(|_| Fr::rand(rng))
+            .collect();
+        println!(
+            "leaves created in {} s",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
         leaves.push(target_leaf);
-        println!("leaves pushed in {} s", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
-        let tree_nodes = create_leaf_list(leaves, 3);
-        println!("leaf list generated in {} s", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
+        println!(
+            "leaves pushed in {} s",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
+        let tree_nodes = create_leaf_list(leaves, 3).unwrap();
+        println!(
+            "leaf list generated in {} s",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
         let (_r, proof) = build_merkle_tree_with_proof(tree_nodes, 3, 3, target_leaf, vec![]);
-        println!("tree proof generated in {} s", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
+        println!(
+            "tree proof generated in {} s",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
         let _computed_root = compute_root_from_proof(target_leaf, proof);
-        println!("computed root generated in {} s", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
+        println!(
+            "computed root generated in {} s",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
         assert!(_computed_root == *_r.root.hash());
     }
 
     #[test]
     fn test_nullifier_proof() {
-        let start = PreciseTime::now();    
+        let start = PreciseTime::now();
         let rng = &mut ChaChaRng::from_seed(&[1u32, 1u32, 1u32, 1u32]);
-        println!("\nsetup generated in {} s\n\n", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
+        println!(
+            "\nsetup generated in {} s\n\n",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
 
         let nullifier = Fr::rand(rng);
         let secret = Fr::rand(rng);
         let leaf = *create_leaf_from_preimage(nullifier, secret).hash();
-        println!("\nrandom target created in {} s\n\n", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
+        println!(
+            "\nrandom target created in {} s\n\n",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
         let mut leaves = vec![leaf];
         for _ in 0..7 {
             leaves.push(Fr::rand(rng));
         }
-        println!("\nleaves created in {} s\n\n", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
-        println!("\nleaves pushed in {} s\n\n", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
-        let tree_nodes = create_leaf_list(leaves, 3);
-        println!("\nleaf list generated in {} s\n\n", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
+        println!(
+            "\nleaves created in {} s\n\n",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
+        println!(
+            "\nleaves pushed in {} s\n\n",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
+        let tree_nodes = create_leaf_list(leaves, 3).unwrap();
+        println!(
+            "\nleaf list generated in {} s\n\n",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
         let (_r, proof) = build_merkle_tree_with_proof(tree_nodes, 3, 3, leaf, vec![]);
         println!("\nProof\n{:?}", proof);
         println!("\nRoot\n{:?}", *_r.root.hash());
-        println!("\ntree proof generated in {} s\n\n", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
+        println!(
+            "\ntree proof generated in {} s\n\n",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
         let _computed_root = compute_root_from_proof(leaf, proof);
-        println!("\ncomputed root generated in {} s\n\n", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
+        println!(
+            "\ncomputed root generated in {} s\n\n",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
         println!("\nComputed root{:?}\n", _computed_root);
         assert!(_computed_root == *_r.root.hash());
     }
@@ -342,15 +401,11 @@ mod test {
         let rng = &mut ChaChaRng::from_seed(seed_slice);
         println!("generating setup...");
         let start = PreciseTime::now();
-        
         let depth = 3;
 
         let mut proof_elts = vec![];
         for _ in 0..depth {
-            proof_elts.push(Some((
-                true,
-                rng.gen::<[u8; 32]>(),
-            )));
+            proof_elts.push(Some((true, rng.gen::<[u8; 32]>())));
         }
 
         let _j_params = &JubjubBn256::new();
@@ -363,8 +418,13 @@ mod test {
             proof: proof_elts,
         };
 
-        m_circuit.synthesize(&mut cs).expect("circuit must synthesize");
-        println!("setup generated in {} s", start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0);
+        m_circuit
+            .synthesize(&mut cs)
+            .expect("circuit must synthesize");
+        println!(
+            "setup generated in {} s",
+            start.to(PreciseTime::now()).num_milliseconds() as f64 / 1000.0
+        );
         println!("num constraints: {}", cs.num_constraints());
         println!("num inputs: {}", cs.num_inputs());
 
@@ -383,8 +443,8 @@ mod test {
 
     #[test]
     fn test_bmt_sequence() {
-        use blake_merkle_tree;
         use blake_circuit;
+        use blake_merkle_tree;
 
         let mut _cs = TestConstraintSystem::<Bn256>::new();
         let seed_slice = &[1u32, 1u32, 1u32, 1u32];
@@ -398,27 +458,30 @@ mod test {
         println!("Leaf hash: {:?}\n", leaf.hash());
 
         let bmt_leaves = blake_merkle_tree::create_leaf_list(vec![*leaf.hash()], 3);
-        let (_r, proof_path) = blake_merkle_tree::build_merkle_tree_with_proof(bmt_leaves, 3, 3, *leaf.hash(), vec![]);
+        let (_r, proof_path) =
+            blake_merkle_tree::build_merkle_tree_with_proof(bmt_leaves, 3, 3, *leaf.hash(), vec![]);
         println!("Path {:?}", proof_path);
         println!("Root hash: {:?}\n", _r.root.hash());
 
-        let params = blake_circuit::generate(seed_slice, proof_path.len() as u32).unwrap().params;
+        let params = blake_circuit::generate(seed_slice, proof_path.len() as u32)
+            .unwrap()
+            .params;
         println!("Circuit params{:?}", params);
-        let proof_hex = blake_circuit::prove(
-            seed_slice,
-            &params,
-            &nullifier,
-            &secret,
-            proof_path,
-        ).unwrap();
+        let proof_hex =
+            blake_circuit::prove(seed_slice, &params, &nullifier, &secret, proof_path).unwrap();
 
         fs::write("test/test.params", params).unwrap();
         fs::write("test/test.proof", proof_hex.proof).unwrap();
         let parameters = &String::from_utf8(fs::read("test/test.params").unwrap()).unwrap();
         let the_proof = &String::from_utf8(fs::read("test/test.proof").unwrap()).unwrap();
-        
         // let h = &String::from_utf8(fs::read("test/test_tree.h").unwrap()).unwrap();
-        let verify = verify(parameters, the_proof, &hex::encode(nullifier), &hex::encode(_r.root.hash())).unwrap();
+        let verify = verify(
+            parameters,
+            the_proof,
+            &hex::encode(nullifier),
+            &hex::encode(_r.root.hash()),
+        )
+        .unwrap();
         println!("Did the circuit work!? {:?}", verify.result);
     }
 }

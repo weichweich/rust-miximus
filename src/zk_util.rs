@@ -1,23 +1,21 @@
-use rand::{ChaChaRng, SeedableRng};
-use bellman::groth16::{Proof, Parameters, verify_proof, create_random_proof, prepare_verifying_key, generate_random_parameters};
+use bellman::groth16::{
+    create_random_proof, generate_random_parameters, prepare_verifying_key, verify_proof,
+    Parameters, Proof,
+};
 use num_bigint::BigInt;
 use num_traits::Num;
+use rand::{ChaChaRng, SeedableRng};
 use std::error::Error;
 
+use ff::{Field, PrimeField};
+use sapling_crypto::babyjubjub::JubjubBn256;
 
-use ff::{PrimeField, Field};
-use sapling_crypto::{
-    babyjubjub::{
-        JubjubBn256,
-    },
-};
-
-use pairing::{bn256::{Bn256, Fr}};
+use pairing::bn256::{Bn256, Fr};
 use MerkleTreeCircuit;
 
 #[derive(Serialize)]
 pub struct KGGenerate {
-    pub params: String
+    pub params: String,
 }
 
 #[derive(Serialize)]
@@ -31,7 +29,7 @@ pub struct KGProof {
 
 #[derive(Serialize)]
 pub struct KGVerify {
-    pub result: bool
+    pub result: bool,
 }
 
 pub fn generate(seed_slice: &[u32], depth: u32) -> Result<KGGenerate, Box<dyn Error>> {
@@ -40,10 +38,7 @@ pub fn generate(seed_slice: &[u32], depth: u32) -> Result<KGGenerate, Box<dyn Er
     let mut proof_elts = vec![];
 
     for _ in 0..depth {
-        proof_elts.push(Some((
-            true,
-            pairing::bn256::Fr::zero(),
-        )));
+        proof_elts.push(Some((true, pairing::bn256::Fr::zero())));
     }
     let params = generate_random_parameters::<Bn256, _, _>(
         MerkleTreeCircuit {
@@ -60,17 +55,17 @@ pub fn generate(seed_slice: &[u32], depth: u32) -> Result<KGGenerate, Box<dyn Er
     params.write(&mut v)?;
 
     Ok(KGGenerate {
-        params: hex::encode(&v[..])
+        params: hex::encode(&v[..]),
     })
 }
 
 pub fn prove(
-        seed_slice: &[u32],
-        params: &str,
-        nullifier_hex: &str,
-        secret_hex: &str,
-        mut proof_path_hex: &str,
-        mut proof_path_sides: &str,
+    seed_slice: &[u32],
+    params: &str,
+    nullifier_hex: &str,
+    secret_hex: &str,
+    mut proof_path_hex: &str,
+    mut proof_path_sides: &str,
 ) -> Result<KGProof, Box<dyn Error>> {
     let de_params = Parameters::<Bn256>::read(&hex::decode(params)?[..], true)?;
     let j_params = &JubjubBn256::new();
@@ -92,15 +87,14 @@ pub fn prove(
         proof_path_hex = pfh;
         proof_path_sides = pfs;
         let mut side_bool = false;
-        if side_i == "1" { side_bool = true }
+        if side_i == "1" {
+            side_bool = true
+        }
 
         let p_big = BigInt::from_str_radix(neighbor_i, 16)?;
         let p_raw = &p_big.to_str_radix(10);
         let p = Fr::from_str(p_raw).ok_or("couldn't parse Fr")?;
-        proof_p_big.push(Some((
-            side_bool,
-            p,
-        )));
+        proof_p_big.push(Some((side_bool, p)));
     }
 
     let proof = create_random_proof(
@@ -111,8 +105,9 @@ pub fn prove(
             proof: proof_p_big,
         },
         &de_params,
-        rng
-    ).unwrap();
+        rng,
+    )
+    .unwrap();
     println!("hello");
     let mut v = vec![];
     proof.write(&mut v)?;
@@ -121,7 +116,12 @@ pub fn prove(
     })
 }
 
-pub fn verify(params: &str, proof: &str, nullifier_hex: &str, root_hex: &str) -> Result<KGVerify, Box<dyn Error>> {
+pub fn verify(
+    params: &str,
+    proof: &str,
+    nullifier_hex: &str,
+    root_hex: &str,
+) -> Result<KGVerify, Box<dyn Error>> {
     let de_params = Parameters::read(&hex::decode(params)?[..], true)?;
     let pvk = prepare_verifying_key::<Bn256>(&de_params.vk);
     // Nullifier
@@ -135,12 +135,8 @@ pub fn verify(params: &str, proof: &str, nullifier_hex: &str, root_hex: &str) ->
     let result = verify_proof(
         &pvk,
         &Proof::read(&hex::decode(proof)?[..])?,
-        &[
-            nullifier,
-            root
-        ])?;
+        &[nullifier, root],
+    )?;
 
-    Ok(KGVerify{
-        result: result
-    })
+    Ok(KGVerify { result: result })
 }

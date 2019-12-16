@@ -56,20 +56,28 @@ pub fn create_leaf_from_preimage(
     };
 }
 
-pub fn create_leaf_list(mut nodes: Vec<pairing::bn256::Fr>, depth: usize) -> Vec<Box<Tree>> {
-    for _ in 0..((2 << (depth - 1)) - nodes.len()) {
-        nodes.push(<pairing::bn256::Fr>::zero());
+pub fn create_leaf_list(
+    mut nodes: Vec<pairing::bn256::Fr>,
+    depth: usize,
+) -> Result<Vec<Box<Tree>>, &'static str> {
+    match ((1 << depth) as isize) - nodes.len() as isize {
+        zeroes if zeroes >= 0 => {
+            for _ in 0..zeroes {
+                nodes.push(<pairing::bn256::Fr>::zero());
+            }
+            let mut tree_nodes: Vec<Box<Tree>> = vec![];
+            for i in 0..nodes.len() {
+                tree_nodes.push(Box::new(Tree::Empty {
+                    hash: nodes[i],
+                    parent: None,
+                }));
+            }
+            return Ok(tree_nodes);
+        }
+        _ => {
+            return Err("Too many leaves for current tree depth");
+        }
     }
-
-    let mut tree_nodes: Vec<Box<Tree>> = vec![];
-    for i in 0..nodes.len() {
-        tree_nodes.push(Box::new(Tree::Empty {
-            hash: nodes[i],
-            parent: None,
-        }));
-    }
-
-    return tree_nodes;
 }
 
 #[allow(dead_code)]
@@ -242,8 +250,10 @@ mod test {
     #[test]
     fn test_create_leaf_list_with_too_small_tree() {
         let rng = &mut ChaChaRng::from_seed(SEED_SLICE);
-
         let mut leaves = vec![Fr::rand(rng), Fr::rand(rng), Fr::rand(rng)];
-        let tree_nodes = create_leaf_list(leaves, 1);
+        let tree_nodes = match create_leaf_list(leaves, 1) {
+            Err(e) => assert_eq!(e, "Too many leaves for current tree depth"),
+            Ok(x) => panic!("create_leaf_list should have failed"),
+        };
     }
 }
